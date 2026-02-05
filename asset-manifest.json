@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/mcsr-ranked-tracker/static/css/main.53cc3928.css",
+    "main.js": "/mcsr-ranked-tracker/static/js/main.dce65805.js",
+    "index.html": "/mcsr-ranked-tracker/index.html",
+    "main.53cc3928.css.map": "/mcsr-ranked-tracker/static/css/main.53cc3928.css.map",
+    "main.dce65805.js.map": "/mcsr-ranked-tracker/static/js/main.dce65805.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.53cc3928.css",
+    "static/js/main.dce65805.js"
+  ]
+}
