@@ -7,4 +7,4 @@ services:
     autoDeploy: true
     envVars:
       - key: CORS_ALLOWED_ORIGINS
-        value: https://im-e.github.io
+        value: https://im-e.github.io,http://localhost:3000
