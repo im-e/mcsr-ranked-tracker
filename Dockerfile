@@ -2,7 +2,7 @@ FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY pom.xml mvnw mvnw.cmd ./
 COPY .mvn .mvn
-RUN ./mvnw -q -DskipTests package -DskipTests=false || true
+RUN chmod +x mvnw
 COPY src src
 RUN ./mvnw -q -DskipTests package
 
