@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mcsr-ranked-tracker
+    env: docker
+    plan: free
+    region: oregon
+    autoDeploy: true
+    envVars:
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://im-e.github.io
