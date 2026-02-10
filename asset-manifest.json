@@ -1,13 +1,16 @@
 {
   "files": {
-    "main.css": "/mcsr-ranked-tracker/static/css/main.53cc3928.css",
-    "main.js": "/mcsr-ranked-tracker/static/js/main.cae4d515.js",
+    "main.css": "/mcsr-ranked-tracker/static/css/main.7b034787.css",
+    "main.js": "/mcsr-ranked-tracker/static/js/main.2224c046.js",
+    "static/media/discord.svg": "/mcsr-ranked-tracker/static/media/discord.d1d464bd6481a21fcde599e0d8699273.svg",
+    "static/media/youtube.svg": "/mcsr-ranked-tracker/static/media/youtube.2599dac007424ad064d056e5df67d2a0.svg",
     "index.html": "/mcsr-ranked-tracker/index.html",
-    "main.53cc3928.css.map": "/mcsr-ranked-tracker/static/css/main.53cc3928.css.map",
-    "main.cae4d515.js.map": "/mcsr-ranked-tracker/static/js/main.cae4d515.js.map"
+    "static/media/twitch.svg": "/mcsr-ranked-tracker/static/media/twitch.89bed83895129e3549b238a54cdcf6db.svg",
+    "main.7b034787.css.map": "/mcsr-ranked-tracker/static/css/main.7b034787.css.map",
+    "main.2224c046.js.map": "/mcsr-ranked-tracker/static/js/main.2224c046.js.map"
   },
   "entrypoints": [
-    "static/css/main.53cc3928.css",
-    "static/js/main.cae4d515.js"
+    "static/css/main.7b034787.css",
+    "static/js/main.2224c046.js"
   ]
 }
