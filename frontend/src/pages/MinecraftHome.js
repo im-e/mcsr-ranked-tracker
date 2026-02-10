@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import './MinecraftHome.css';
+import discordIcon from '../assets/discord.svg';
+import twitchIcon from '../assets/twitch.svg';
+import youtubeIcon from '../assets/youtube.svg';
 
 const MinecraftHome = () => {
   const API_BASE = process.env.REACT_APP_API_BASE || '';
   const [searchInput, setSearchInput] = useState('');
   const [userData, setUserData] = useState(null);
+  const [userStats, setUserStats] = useState(null);
   const [matchStats, setMatchStats] = useState(null);
   const [matchStatsByType, setMatchStatsByType] = useState({});
   const [loading, setLoading] = useState(false);
@@ -12,10 +16,8 @@ const MinecraftHome = () => {
   const [matchType, setMatchType] = useState(2); // Default to ranked
 
   const MATCH_TYPES = {
-    1: { label: 'Casual'},
     2: { label: 'Ranked'},
     3: { label: 'Private'},
-    4: { label: 'Event'},
   };
 
   const handleSearch = async (e) => {
@@ -28,6 +30,7 @@ const MinecraftHome = () => {
     setLoading(true);
     setError(null);
     setUserData(null);
+    setUserStats(null);
     setMatchStats(null);
     setMatchStatsByType({});
 
@@ -38,25 +41,22 @@ const MinecraftHome = () => {
       const user = await userResponse.json();
       setUserData(user);
 
-      // Fetch match statistics for all types up front
-      const typeKeys = Object.keys(MATCH_TYPES);
-      const statsResponses = await Promise.all(
-        typeKeys.map((typeKey) =>
-          fetch(`${API_BASE}/api/mcsr/users/${username}/stats?count=100&type=${typeKey}`)
-            .then((response) => (response.ok ? response.json() : null))
-            .then((stats) => [typeKey, stats])
-        )
+      // Fetch match statistics for all types in one call
+      const statsResponse = await fetch(
+        `${API_BASE}/api/mcsr/users/${username}/stats/by-type?count=100`
       );
+      if (!statsResponse.ok) throw new Error('User stats not found');
+      const statsPayload = await statsResponse.json();
+      const statsMap = statsPayload?.matchStatisticsByType || {};
+      const availableTypes = Object.keys(statsMap).map((key) => parseInt(key, 10));
+      const preferredType = availableTypes.includes(type)
+        ? type
+        : (availableTypes[0] ?? null);
 
-      const statsMap = statsResponses.reduce((acc, [typeKey, stats]) => {
-        if (stats) {
-          acc[typeKey] = stats;
-        }
-        return acc;
-      }, {});
-
+      setUserStats(statsPayload);
       setMatchStatsByType(statsMap);
-      setMatchStats(statsMap[type] || null);
+      setMatchType(preferredType);
+      setMatchStats(preferredType != null ? statsMap[preferredType] : null);
 
       // Scroll to content
       setTimeout(() => {
@@ -86,6 +86,11 @@ const MinecraftHome = () => {
   };
 
   const formatLabel = (value) => (value ? value.replace(/_/g, ' ') : 'UNKNOWN');
+  const formatElo = (value) => {
+    if (value == null) return 'N/A';
+    if (value > 0) return `+${value}`;
+    return `${value}`;
+  };
 
   const getStatByType = (stats, key, type) => {
     const byType = stats?.[key];
@@ -96,10 +101,10 @@ const MinecraftHome = () => {
     return byType[type] ?? null;
   };
 
-  const bestTimeAllTime = getStatByType(matchStats, 'bestTimeAllTimeByType', matchType);
-  const bestTimeLastMatches = getStatByType(matchStats, 'bestTimeLastMatchesByType', matchType);
-  const averageTimeAllTime = getStatByType(matchStats, 'averageTimeAllTimeByType', matchType);
-  const averageTimeLastMatches = getStatByType(matchStats, 'averageTimeLastMatchesByType', matchType);
+  const bestTimeAllTime = getStatByType(userStats, 'bestTimeAllTimeByType', matchType);
+  const bestTimeLastMatches = matchStats?.bestTimeLastMatches ?? null;
+  const averageTimeAllTime = getStatByType(userStats, 'averageTimeAllTimeByType', matchType);
+  const averageTimeLastMatches = matchStats?.averageTimeLastMatches ?? null;
 
   const seasonBestTimeRanked = userData?.statistics?.season?.bestTime?.ranked ?? null;
   const seasonAvgTimeRanked = (() => {
@@ -116,6 +121,14 @@ const MinecraftHome = () => {
     const losses = user.statistics?.season?.loses?.ranked || 0;
     const total = wins + losses;
     return total > 0 ? ((wins / total) * 100).toFixed(1) : 0;
+  };
+
+  const getSeasonDraws = (user) => {
+    const played = user.statistics?.season?.playedMatches?.ranked || 0;
+    const wins = user.statistics?.season?.wins?.ranked || 0;
+    const losses = user.statistics?.season?.loses?.ranked || 0;
+    const draws = played - wins - losses;
+    return draws > 0 ? draws : 0;
   };
 
   const getTypeWinRate = (statsMap, typeKey) => {
@@ -229,6 +242,10 @@ const MinecraftHome = () => {
                   <div className="stat-value">{userData.statistics?.season?.loses?.ranked || 0}</div>
                   <div className="stat-label">Season Losses</div>
                 </div>
+                <div className="stat-box draws">
+                  <div className="stat-value">{getSeasonDraws(userData)}</div>
+                  <div className="stat-label">Season Draws</div>
+                </div>
                 <div className="stat-box winrate">
                   <div className="stat-value">{calculateSeasonWinRate(userData)}%</div>
                   <div className="stat-label">Season Win Rate</div>
@@ -246,6 +263,50 @@ const MinecraftHome = () => {
                   <div className="stat-label">Season Forfeit Rate</div>
                 </div>
               </div>
+              {userData.connections && (userData.connections.discord || userData.connections.twitch || userData.connections.youtube) && (
+                <div className="player-connections">
+                  {userData.connections.discord && (
+                    <div className="connection-item">
+                      <img className="conn-thumb" src={discordIcon} alt="Discord" />
+                      <div className="conn-text">
+                        <span className="conn-label">Discord</span>
+                        <span className="conn-sep">:</span>
+                        <span className="conn-value">{userData.connections.discord.name}</span>
+                      </div>
+                    </div>
+                  )}
+                  {userData.connections.twitch && (
+                    <a
+                      href={`https://twitch.tv/${userData.connections.twitch.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="connection-item"
+                    >
+                      <img className="conn-thumb" src={twitchIcon} alt="Twitch" />
+                      <div className="conn-text">
+                        <span className="conn-label">Twitch</span>
+                        <span className="conn-sep">:</span>
+                        <span className="conn-value">{userData.connections.twitch.name}</span>
+                      </div>
+                    </a>
+                  )}
+                  {userData.connections.youtube && (
+                    <a
+                      href={`https://youtube.com/channel/${userData.connections.youtube.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="connection-item"
+                    >
+                      <img className="conn-thumb" src={youtubeIcon} alt="YouTube" />
+                      <div className="conn-text">
+                        <span className="conn-label">YouTube</span>
+                        <span className="conn-sep">:</span>
+                        <span className="conn-value">{userData.connections.youtube.name}</span>
+                      </div>
+                    </a>
+                  )}
+                </div>
+              )}
                   </section>
 
                 </>
@@ -253,21 +314,25 @@ const MinecraftHome = () => {
             })()}
 
             {/* Match Type Filter */}
-            <section className="match-type-filter">
-              <span className="filter-label">Match Type:</span>
-              <div className="filter-buttons">
-                {Object.entries(MATCH_TYPES).map(([type, { label}]) => (
-                  <button
-                    key={type}
-                    className={`filter-btn ${parseInt(type) === matchType ? 'active' : ''}`}
-                    onClick={() => handleMatchTypeChange(parseInt(type))}
-                    disabled={loading}
-                  >
-                    <span className="filter-text">{label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
+            {Object.keys(matchStatsByType).length > 0 && (
+              <section className="match-type-filter">
+                <span className="filter-label">Match Type:</span>
+                <div className="filter-buttons">
+                  {Object.entries(MATCH_TYPES)
+                    .filter(([type]) => matchStatsByType[type])
+                    .map(([type, { label}]) => (
+                      <button
+                        key={type}
+                        className={`filter-btn ${parseInt(type) === matchType ? 'active' : ''}`}
+                        onClick={() => handleMatchTypeChange(parseInt(type))}
+                        disabled={loading}
+                      >
+                        <span className="filter-text">{label}</span>
+                      </button>
+                    ))}
+                </div>
+              </section>
+            )}
 
             {/* Match Statistics - PRIORITY */}
             {matchStats && (
@@ -295,6 +360,36 @@ const MinecraftHome = () => {
                         <div className="stat-box time placeholder" />
                       )}
                     </div>
+                    <div className="time-stats-row">
+                      <div className="stat-box time-last wins">
+                        <div className="stat-value">{matchStats.overall?.wins ?? 0}</div>
+                        <div className="stat-label">Wins (Last 100)</div>
+                      </div>
+                      <div className="stat-box time-last losses">
+                        <div className="stat-value">{matchStats.overall?.losses ?? 0}</div>
+                        <div className="stat-label">Losses (Last 100)</div>
+                      </div>
+                      <div className="stat-box time-last draws">
+                        <div className="stat-value">{matchStats.overall?.draws ?? 0}</div>
+                        <div className="stat-label">Draws (Last 100)</div>
+                      </div>
+                    </div>
+                    {matchType === 2 && matchStats?.eloNet != null && (
+                      <div className="time-stats-row">
+                        <div className="stat-box time-last wins">
+                          <div className="stat-value">{formatElo(matchStats.eloGained ?? 0)}</div>
+                          <div className="stat-label">Elo Gained</div>
+                        </div>
+                        <div className="stat-box time-last losses">
+                          <div className="stat-value">-{matchStats.eloLost ?? 0}</div>
+                          <div className="stat-label">Elo Lost</div>
+                        </div>
+                        <div className={`stat-box time-last ${matchStats.eloNet >= 0 ? 'wins' : 'losses'}`}>
+                          <div className="stat-value">{formatElo(matchStats.eloNet)}</div>
+                          <div className="stat-label">Elo Net</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <h3 className="subsection-header">BASTION TYPE BREAKDOWN</h3>
@@ -302,10 +397,18 @@ const MinecraftHome = () => {
                     {Object.entries(matchStats.bastionStats).map(([type, data]) => (
                       <div key={type} className="breakdown-card">
                         <div className="breakdown-title">{formatLabel(type)}</div>
-                        <div className="breakdown-stats">
+                          <div className="breakdown-stats">
+                          <div className="breakdown-row">
+                            <span>Average:</span>
+                            <span className="val">{formatTime(data.averageWinTime)}</span>
+                          </div>
+                          <div className="breakdown-row">
+                            <span>Best:</span>
+                            <span className="val best-time">{formatTime(data.fastestTime)}</span>
+                          </div>
                           <div className="breakdown-row">
                             <span>Winrate:</span>
-                            <span className="val">{data.winRate.toFixed(0)}%</span>
+                            <span className={`val ${data.winRate < 0 ? 'negative' : ''}`}>{data.winRate.toFixed(0)}%</span>
                           </div>
                           <div className="breakdown-row">
                             <span>Record:</span>
@@ -315,24 +418,14 @@ const MinecraftHome = () => {
                             <span>Finishes:</span>
                             <span className="val finish-count">{data.finishedWins || 0}</span>
                           </div>
-                          <div className="breakdown-row">
-                            <span>Average:</span>
-                            <span className="val">{formatTime(data.averageWinTime)}</span>
-                          </div>
-                          <div className="breakdown-row">
-                            <span>Best:</span>
-                            <span className="val best-time">{formatTime(data.fastestTime)}</span>
-                          </div>
                           {(data.forfeitLosses > 0 || data.forfeitWins > 0) && (
                             <div className="breakdown-row forfeit-row">
-                              <span>User FF:</span>
-                              <span className="val forfeit-loss-val">{data.forfeitLosses || 0}</span>
-                            </div>
-                          )}
-                          {(data.forfeitLosses > 0 || data.forfeitWins > 0) && (
-                            <div className="breakdown-row">
-                              <span>Opponent FF:</span>
-                              <span className="val forfeit-win-val">{data.forfeitWins || 0}</span>
+                              <span>Forfeits:</span>
+                              <span className="val forfeit-pair">
+                                <span className="forfeit-loss-val">{data.forfeitLosses || 0}</span>
+                                <span className="forfeit-sep"> - </span>
+                                <span className="forfeit-win-val">{data.forfeitWins || 0}</span>
+                              </span>
                             </div>
                           )}
                         </div>
@@ -345,10 +438,18 @@ const MinecraftHome = () => {
                     {Object.entries(matchStats.seedStats).map(([type, data]) => (
                       <div key={type} className="breakdown-card">
                         <div className="breakdown-title">{formatLabel(type)}</div>
-                        <div className="breakdown-stats">
+                          <div className="breakdown-stats">
+                          <div className="breakdown-row">
+                            <span>Average:</span>
+                            <span className="val">{formatTime(data.averageWinTime)}</span>
+                          </div>
+                          <div className="breakdown-row">
+                            <span>Best:</span>
+                            <span className="val best-time">{formatTime(data.fastestTime)}</span>
+                          </div>
                           <div className="breakdown-row">
                             <span>Winrate:</span>
-                            <span className="val">{data.winRate.toFixed(0)}%</span>
+                            <span className={`val ${data.winRate < 0 ? 'negative' : ''}`}>{data.winRate.toFixed(0)}%</span>
                           </div>
                           <div className="breakdown-row">
                             <span>Record:</span>
@@ -358,24 +459,14 @@ const MinecraftHome = () => {
                             <span>Finishes:</span>
                             <span className="val finish-count">{data.finishedWins || 0}</span>
                           </div>
-                          <div className="breakdown-row">
-                            <span>Average:</span>
-                            <span className="val">{formatTime(data.averageWinTime)}</span>
-                          </div>
-                          <div className="breakdown-row">
-                            <span>Best:</span>
-                            <span className="val best-time">{formatTime(data.fastestTime)}</span>
-                          </div>
                           {(data.forfeitLosses > 0 || data.forfeitWins > 0) && (
                             <div className="breakdown-row forfeit-row">
-                              <span>User FF:</span>
-                              <span className="val forfeit-loss-val">{data.forfeitLosses || 0}</span>
-                            </div>
-                          )}
-                          {(data.forfeitLosses > 0 || data.forfeitWins > 0) && (
-                            <div className="breakdown-row">
-                              <span>Opponent FF:</span>
-                              <span className="val forfeit-win-val">{data.forfeitWins || 0}</span>
+                              <span>Forfeits:</span>
+                              <span className="val forfeit-pair">
+                                <span className="forfeit-loss-val">{data.forfeitLosses || 0}</span>
+                                <span className="forfeit-sep"> - </span>
+                                <span className="forfeit-win-val">{data.forfeitWins || 0}</span>
+                              </span>
                             </div>
                           )}
                         </div>
@@ -393,7 +484,9 @@ const MinecraftHome = () => {
                         <div className="stat-box best">
                           <div className="stat-value">{formatLabel(matchStats.bestSeed)}</div>
                           <div className="stat-subvalue">
-                            {formatWinRate(getTypeWinRate(matchStats.seedStats, matchStats.bestSeed))}
+                            <span className={getTypeWinRate(matchStats.seedStats, matchStats.bestSeed) < 0 ? 'negative' : ''}>
+                              {formatWinRate(getTypeWinRate(matchStats.seedStats, matchStats.bestSeed))}
+                            </span>
                           </div>
                           <div className="stat-label">Best Seed</div>
                         </div>
@@ -402,7 +495,9 @@ const MinecraftHome = () => {
                         <div className="stat-box worst">
                           <div className="stat-value">{formatLabel(matchStats.worstSeed)}</div>
                           <div className="stat-subvalue">
-                            {formatWinRate(getTypeWinRate(matchStats.seedStats, matchStats.worstSeed))}
+                            <span className={getTypeWinRate(matchStats.seedStats, matchStats.worstSeed) < 0 ? 'negative' : ''}>
+                              {formatWinRate(getTypeWinRate(matchStats.seedStats, matchStats.worstSeed))}
+                            </span>
                           </div>
                           <div className="stat-label">Worst Seed</div>
                         </div>
@@ -411,7 +506,9 @@ const MinecraftHome = () => {
                         <div className="stat-box best">
                           <div className="stat-value">{formatLabel(matchStats.bestBastion)}</div>
                           <div className="stat-subvalue">
-                            {formatWinRate(getTypeWinRate(matchStats.bastionStats, matchStats.bestBastion))}
+                            <span className={getTypeWinRate(matchStats.bastionStats, matchStats.bestBastion) < 0 ? 'negative' : ''}>
+                              {formatWinRate(getTypeWinRate(matchStats.bastionStats, matchStats.bestBastion))}
+                            </span>
                           </div>
                           <div className="stat-label">Best Bastion</div>
                         </div>
@@ -420,7 +517,9 @@ const MinecraftHome = () => {
                         <div className="stat-box worst">
                           <div className="stat-value">{formatLabel(matchStats.worstBastion)}</div>
                           <div className="stat-subvalue">
-                            {formatWinRate(getTypeWinRate(matchStats.bastionStats, matchStats.worstBastion))}
+                            <span className={getTypeWinRate(matchStats.bastionStats, matchStats.worstBastion) < 0 ? 'negative' : ''}>
+                              {formatWinRate(getTypeWinRate(matchStats.bastionStats, matchStats.worstBastion))}
+                            </span>
                           </div>
                           <div className="stat-label">Worst Bastion</div>
                         </div>
@@ -431,51 +530,6 @@ const MinecraftHome = () => {
               </>
             )}
 
-            {/* Connections - Lower Priority */}
-            {userData.connections && (userData.connections.discord || userData.connections.twitch || userData.connections.youtube) && (
-              <section className="stats-section">
-                <h2 className="section-header">🔗 CONNECTIONS</h2>
-                <div className="connections-row">
-                  {userData.connections.discord && (
-                    <div className="connection-item">
-                      <span className="conn-icon"></span>
-                      <div className="conn-info">
-                        <div className="conn-label">Discord</div>
-                        <div className="conn-value">{userData.connections.discord.name}</div>
-                      </div>
-                    </div>
-                  )}
-                  {userData.connections.twitch && (
-                    <a
-                      href={`https://twitch.tv/${userData.connections.twitch.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="connection-item"
-                    >
-                      <span className="conn-icon">📺</span>
-                      <div className="conn-info">
-                        <div className="conn-label">Twitch</div>
-                        <div className="conn-value">{userData.connections.twitch.name}</div>
-                      </div>
-                    </a>
-                  )}
-                  {userData.connections.youtube && (
-                    <a
-                      href={`https://youtube.com/channel/${userData.connections.youtube.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="connection-item"
-                    >
-                      <span className="conn-icon"></span>
-                      <div className="conn-info">
-                        <div className="conn-label">YouTube</div>
-                        <div className="conn-value">{userData.connections.youtube.name}</div>
-                      </div>
-                    </a>
-                  )}
-                </div>
-              </section>
-            )}
           </div>
         </main>
       ) : (

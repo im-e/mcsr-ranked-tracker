@@ -5,6 +5,7 @@ public class StatBucket {
     private int matches;
     private int wins;
     private int losses;
+    private int draws;
 
     private int finishedWins;
     private long totalWinTime;
@@ -13,8 +14,13 @@ public class StatBucket {
     private int forfeitWins;
     private int forfeitLosses;
 
-    public void recordMatch(boolean isWin, boolean isForfeit, Long time) {
+    public void recordMatch(boolean isWin, boolean isDraw, boolean isForfeit, Long time) {
         matches++;
+
+        if (isDraw) {
+            draws++;
+            return;
+        }
 
         if (isWin) {
             wins++;
@@ -64,6 +70,10 @@ public class StatBucket {
 
     public int getLosses() {
         return losses;
+    }
+
+    public int getDraws() {
+        return draws;
     }
 
     public int getFinishedWins() {

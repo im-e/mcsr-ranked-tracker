@@ -226,6 +226,14 @@
   margin-top: 12px;
 }
 
+.player-connections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  margin-top: 16px;
+}
+
 .badge {
   padding: 12px 24px;
   text-align: center;
@@ -462,6 +470,10 @@
   margin-bottom: 6px;
 }
 
+.stat-subvalue .negative {
+  color: var(--mc-red);
+}
+
 .stat-box.best {
   border-color: var(--mc-green);
 }
@@ -487,6 +499,10 @@
 .stat-box.losses .stat-value,
 .stat-box.losses-total .stat-value {
   color: var(--mc-red);
+}
+
+.stat-box.draws .stat-value {
+  color: var(--mc-blue);
 }
 
 .stat-box.winrate .stat-value {
@@ -614,6 +630,10 @@
   font-weight: bold;
 }
 
+.breakdown-row .val.negative {
+  color: var(--mc-red);
+}
+
 .breakdown-row .val.best-time {
   color: var(--mc-green);
 }
@@ -632,12 +652,22 @@
   color: var(--mc-gold);
 }
 
-.breakdown-row .val.forfeit-loss-val {
+.breakdown-row .forfeit-loss-val {
   color: var(--mc-red);
 }
 
-.breakdown-row .val.forfeit-win-val {
+.breakdown-row .forfeit-win-val {
   color: var(--mc-green);
+}
+
+.breakdown-row .val.forfeit-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.breakdown-row .val .forfeit-sep {
+  color: var(--mc-text-dim);
 }
 
 /* ===== Analysis Overview ===== */
@@ -695,13 +725,14 @@
 .connection-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 8px;
+  padding: 8px 12px;
   background: var(--mc-surface-light);
   border: 2px solid var(--mc-border);
   text-decoration: none;
   color: inherit;
   transition: transform 0.2s, border-color 0.2s;
+  flex: 1 1 220px;
 }
 
 .connection-item:hover {
@@ -709,21 +740,38 @@
   border-color: var(--mc-blue);
 }
 
-.conn-icon {
-  font-size: 24px;
+.conn-thumb {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.conn-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
 }
 
 .conn-label {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--mc-text-dim);
   text-transform: uppercase;
   letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.conn-sep {
+  color: var(--mc-text-dim);
 }
 
 .conn-value {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--mc-text);
   font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ===== Welcome Section ===== */
@@ -865,6 +913,10 @@
   }
 
   .connections-row {
+    flex-direction: column;
+  }
+
+  .player-connections {
     flex-direction: column;
   }
 

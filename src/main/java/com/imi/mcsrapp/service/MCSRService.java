@@ -1,13 +1,14 @@
 package com.imi.mcsrapp.service;
 
 import com.imi.mcsrapp.model.*;
+import com.imi.mcsrapp.model.mcsrapi.Match;
+import com.imi.mcsrapp.model.mcsrapi.User;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,11 +36,21 @@ public class MCSRService {
     }
 
     public List<Match> getUserMatchesSync(String identifier, Integer count) {
+        // Convenience overload: fetch recent matches without type filtering.
+        return getUserMatchesSync(identifier, count, null);
+    }
+
+    public List<Match> getUserMatchesSync(String identifier, Integer count, Integer matchType) {
         APIResponse<List<Match>> response = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/users/{identifier}/matches")
-                        .queryParam("count", count != null ? count : 20)
-                        .build(identifier))
+                .uri(uriBuilder -> {
+                    org.springframework.web.util.UriBuilder builder = uriBuilder
+                            .path("/users/{identifier}/matches")
+                            .queryParam("count", count != null ? count : 20);
+                    if (matchType != null) {
+                        builder = builder.queryParam("type", matchType);
+                    }
+                    return builder.build(identifier);
+                })
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<APIResponse<List<Match>>>() {})
                 .block();
@@ -47,20 +58,52 @@ public class MCSRService {
         return response != null ? response.getData() : null;
     }
 
-    public UserStatistics getUserMatchStatistics(String identifier, Integer count, Integer matchType) {
-        List<Match> matches = getUserMatchesSync(identifier, count);
+    public MatchStatistics getUserMatchStatistics(String identifier, Integer count, Integer matchType) {
+        if (matchType == null) {
+            return null;
+        }
+
+        List<Match> matches = getUserMatchesSync(identifier, count, matchType);
         if (matches == null || matches.isEmpty()) {
             return null;
         }
 
-        User user = getUserByIdentifierSync(identifier);
-        return calculateMatchStatistics(matches, user, identifier, matchType);
+        return calculateMatchStatistics(matches, identifier, matchType);
     }
 
-    private UserStatistics calculateMatchStatistics(List<Match> matches, User user, String identifier, Integer matchType) {
+    public UserStatistics getUserStatistics(String identifier, Integer count) {
         UserStatistics stats = new UserStatistics();
+        User user = getUserByIdentifierSync(identifier);
+        populateBestTimesFromUserStats(stats, user);
 
-        String userUuid = matches.stream()
+        for (int type : new int[]{2, 3}) {
+            List<Match> matches = getUserMatchesSync(identifier, count, type);
+            if (matches == null || matches.isEmpty()) {
+                continue;
+            }
+            MatchStatistics matchStats = calculateMatchStatistics(matches, identifier, type);
+            if (matchStats != null) {
+                stats.getMatchStatisticsByType().put(type, matchStats);
+            }
+        }
+
+        return stats;
+    }
+
+    private MatchStatistics calculateMatchStatistics(
+            List<Match> matches,
+            String identifier,
+            Integer matchType) {
+        List<Match> matchesByType = matches.stream()
+                .filter(m -> matchType.equals(m.getType()))
+                .toList();
+        if (matchesByType.isEmpty()) {
+            return null;
+        }
+
+        MatchStatistics stats = new MatchStatistics();
+
+        String userUuid = matchesByType.stream()
                 .flatMap(m -> m.getPlayers().stream())
                 .filter(p -> p.getNickname().equalsIgnoreCase(identifier)
                         || p.getUuid().equals(identifier))
@@ -69,53 +112,57 @@ public class MCSRService {
                 .orElse(null);
 
         if (userUuid == null) {
-            return stats;
+            return null;
         }
 
-        populateBestTimesFromUserStats(stats, user, matchType);
-
-        List<Match> validMatchesAllTypes = matches.stream()
+        List<Match> validMatchesAllTypes = matchesByType.stream()
                 .filter(m -> !Boolean.TRUE.equals(m.getDecayed()) && m.getResult() != null)
                 .toList();
 
-        List<Match> validMatches = matches.stream()
-                .filter(m -> matchType == null || matchType.equals(m.getType()))
-                .filter(m -> !Boolean.TRUE.equals(m.getDecayed()) && m.getResult() != null)
-                .toList();
+        List<Match> validMatches = validMatchesAllTypes;
 
-        stats.setTotalMatches((int) matches.stream()
-                .filter(m -> matchType == null || matchType.equals(m.getType()))
-                .count());
+        stats.setTotalMatches(matchesByType.size());
+
+        int decayedCount = 0;
+        int missingResultCount = 0;
+        for (Match match : matchesByType) {
+            if (Boolean.TRUE.equals(match.getDecayed())) {
+                decayedCount++;
+                continue;
+            }
+            if (match.getResult() == null) {
+                missingResultCount++;
+            }
+        }
+        stats.setDecayedMatches(decayedCount);
+        stats.setMissingResultMatches(missingResultCount);
 
         stats.setValidMatches(validMatches.size());
         stats.setBestTimeLastMatches(findBestTime(validMatches, userUuid));
-
-        Map<Integer, long[]> lastMatchAverages = new HashMap<>();
-        for (Match match : validMatchesAllTypes) {
-            updateBestTimeByType(stats.getBestTimeLastMatchesByType(), match, userUuid);
-            updateAverageTotalsByType(lastMatchAverages, match, userUuid);
-        }
-        finalizeAverageTimes(stats.getAverageTimeLastMatchesByType(), lastMatchAverages);
+        stats.setAverageTimeLastMatches(findAverageTime(validMatches, userUuid));
+        populateEloChange(stats, validMatches, userUuid, matchType);
 
         for (Match match : validMatches) {
-            boolean isWin = userUuid.equals(match.getResult().getUuid());
+            String resultUuid = match.getResult().getUuid();
+            boolean isWin = userUuid.equals(resultUuid);
+            boolean isDraw = isDrawResult(resultUuid);
             boolean isForfeit = Boolean.TRUE.equals(match.getForfeited());
             Long time = isWin ? match.getResult().getTime() : null;
 
-            // Overall
-            stats.getOverall().recordMatch(isWin, isForfeit, time);
+            // Overall stats for the filtered match list.
+            stats.getOverall().recordMatch(isWin, isDraw, isForfeit, time);
 
-            // Bastion
+            // Bastion-type breakdown.
             String bastion = match.getBastionType() != null ? match.getBastionType() : "UNKNOWN";
             stats.getBastionStats()
                     .computeIfAbsent(bastion, k -> new StatBucket())
-                    .recordMatch(isWin, isForfeit, time);
+                    .recordMatch(isWin, isDraw, isForfeit, time);
 
-            // Seed
+            // Seed-type breakdown.
             String seed = match.getSeedType() != null ? match.getSeedType() : "UNKNOWN";
             stats.getSeedStats()
                     .computeIfAbsent(seed, k -> new StatBucket())
-                    .recordMatch(isWin, isForfeit, time);
+                    .recordMatch(isWin, isDraw, isForfeit, time);
         }
 
         stats.setBestBastion(findBest(stats.getBastionStats()));
@@ -136,7 +183,7 @@ public class MCSRService {
         return response != null ? response.getData() : null;
     }
 
-    private void populateBestTimesFromUserStats(UserStatistics stats, User user, Integer matchType) {
+    private void populateBestTimesFromUserStats(UserStatistics stats, User user) {
         if (user == null || user.getStatistics() == null) {
             return;
         }
@@ -144,7 +191,7 @@ public class MCSRService {
         User.StatsPeriod season = user.getStatistics().getSeason();
         User.StatsPeriod total = user.getStatistics().getTotal();
 
-        stats.setBestTimeSeason(resolveBestTime(season, matchType));
+        stats.setBestTimeSeason(resolveBestTimeRanked(season));
         stats.setAverageTimeSeasonRanked(resolveAverageTimeRanked(season));
         stats.setAverageTimeAllTimeRanked(resolveAverageTimeRanked(total));
 
@@ -154,27 +201,12 @@ public class MCSRService {
         populateAverageTimeByType(stats.getAverageTimeSeasonByType(), season);
     }
 
-    private Long resolveBestTime(User.StatsPeriod period, Integer matchType) {
+    private Long resolveBestTimeRanked(User.StatsPeriod period) {
         if (period == null || period.getBestTime() == null) {
             return null;
         }
 
-        Long ranked = period.getBestTime().getRanked();
-        Long casual = period.getBestTime().getCasual();
-
-        if (matchType == null) {
-            return minNonNull(ranked, casual);
-        }
-
-        if (matchType == 1) {
-            return casual;
-        }
-
-        if (matchType == 2) {
-            return ranked;
-        }
-
-        return null;
+        return period.getBestTime().getRanked();
     }
 
     private void populateBestTimeByType(Map<Integer, Long> target, User.StatsPeriod period) {
@@ -206,18 +238,6 @@ public class MCSRService {
         }
 
         return totalTime / completions;
-    }
-
-    private Long minNonNull(Long first, Long second) {
-        if (first == null) {
-            return second;
-        }
-
-        if (second == null) {
-            return first;
-        }
-
-        return Math.min(first, second);
     }
 
     private Long findBestTime(List<Match> matches, String userUuid) {
@@ -263,61 +283,74 @@ public class MCSRService {
         }
     }
 
-    private void updateBestTimeByType(Map<Integer, Long> target, Match match, String userUuid) {
-        if (match.getType() == null) {
-            return;
+    private Long findAverageTime(List<Match> matches, String userUuid) {
+        long total = 0;
+        long count = 0;
+
+        for (Match match : matches) {
+            if (!userUuid.equals(match.getResult().getUuid())) {
+                continue;
+            }
+
+            if (Boolean.TRUE.equals(match.getForfeited())) {
+                continue;
+            }
+
+            Long time = match.getResult().getTime();
+            if (time == null || time <= 0) {
+                continue;
+            }
+
+            total += time;
+            count += 1;
         }
 
-        if (!userUuid.equals(match.getResult().getUuid())) {
-            return;
-        }
-
-        if (Boolean.TRUE.equals(match.getForfeited())) {
-            return;
-        }
-
-        Long time = match.getResult().getTime();
-        if (time == null || time <= 0) {
-            return;
-        }
-
-        Long current = target.get(match.getType());
-        if (current == null || time < current) {
-            target.put(match.getType(), time);
-        }
+        return count == 0 ? null : total / count;
     }
 
-    private void updateAverageTotalsByType(Map<Integer, long[]> target, Match match, String userUuid) {
-        Integer type = match.getType();
-        if (type == null) {
+    private void populateEloChange(MatchStatistics stats, List<Match> matches, String userUuid, Integer matchType) {
+        if (!Integer.valueOf(2).equals(matchType)) {
             return;
         }
 
-        if (!userUuid.equals(match.getResult().getUuid())) {
-            return;
-        }
+        int net = 0;
+        int gained = 0;
+        int lost = 0;
+        boolean found = false;
 
-        if (Boolean.TRUE.equals(match.getForfeited())) {
-            return;
-        }
+        for (Match match : matches) {
+            if (match.getChanges() == null || match.getChanges().isEmpty()) {
+                continue;
+            }
 
-        Long time = match.getResult().getTime();
-        if (time == null || time <= 0) {
-            return;
-        }
+            for (Match.EloChange change : match.getChanges()) {
+                if (!userUuid.equals(change.getUuid())) {
+                    continue;
+                }
 
-        long[] totals = target.computeIfAbsent(type, k -> new long[2]);
-        totals[0] += time;
-        totals[1] += 1;
-    }
+                Integer delta = change.getChange();
+                if (delta == null) {
+                    break;
+                }
 
-    private void finalizeAverageTimes(Map<Integer, Long> target, Map<Integer, long[]> totals) {
-        for (Map.Entry<Integer, long[]> entry : totals.entrySet()) {
-            long count = entry.getValue()[1];
-            if (count > 0) {
-                target.put(entry.getKey(), entry.getValue()[0] / count);
+                found = true;
+                net += delta;
+                if (delta > 0) {
+                    gained += delta;
+                } else if (delta < 0) {
+                    lost += -delta;
+                }
+                break;
             }
         }
+
+        if (!found) {
+            return;
+        }
+
+        stats.setEloNet(net);
+        stats.setEloGained(gained);
+        stats.setEloLost(lost);
     }
 
     private String findBest(Map<String, StatBucket> map) {
@@ -332,5 +365,9 @@ public class MCSRService {
                 .min(Comparator.comparingDouble(e -> e.getValue().getWinRate()))
                 .map(Map.Entry::getKey)
                 .orElse(null);
+    }
+
+    private boolean isDrawResult(String resultUuid) {
+        return resultUuid == null;
     }
 }
